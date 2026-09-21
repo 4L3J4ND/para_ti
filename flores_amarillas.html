@@ -166,7 +166,7 @@
   }
 
     // Cambiar mensaje cada 6.5 segundos
-    setInterval(showNextRandomMessage, 10000);
+    setInterval(showNextRandomMessage, 7000);
     setTimeout(showNextRandomMessage, 1500);
 
     // ---- UTILIDADES Y CONFIGURACIÓN ----
@@ -178,7 +178,7 @@
     const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
     const gauss = () => (R() + R() + R() + R() - 2) * 1.73;
 
-    const T_HEART = 1.0, T_FADE0 = 8.4, T_FADE1 = 10.2, T_BOOM2 = 10.4, T_END = 26.6, LOOP = 28;
+    const T_HEART = 1.0, T_FADE0 = 8.4, T_FADE1 = 10.2, T_BOOM2 = 10.4, T_END = 26.6, LOOP = 45;
     const CY = 2.6, FOV = 50;
 
     // ---- ESCENA Y RENDERER ----
