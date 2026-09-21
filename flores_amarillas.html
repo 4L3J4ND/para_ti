@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Flores Amarillas 3D para ti 🌻</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+  <style>
+    :root { color-scheme: dark; --bg-in:#120a1c; --bg-out:#020105; --txt:#ffeab0; }
+    html, body { height:100%; margin:0; }
+    body { 
+      background: radial-gradient(ellipse at 50% 40%, var(--bg-in) 0%, var(--bg-out) 78%); 
+      overflow:hidden; 
+      font-family: system-ui, -apple-system, sans-serif;
+      touch-action: none;
+    }
+    #gl { position:fixed; inset:0; width:100%; height:100%; display:block; cursor:grab; }
+    #gl:active { cursor:grabbing; }
+
+    /* Capa de mensajes flotantes sin recuadro */
+    #msgs { position:fixed; inset:0; pointer-events:none; overflow:hidden; z-index: 10; }
+    .random-msg {
+      position: absolute;
+      max-width: 80vw;
+      font: 700 36px/1.3 "Dancing Script", "Segoe Script", cursive;
+      color: #ffffff;
+      text-align: center;
+      background: none;
+      border: none;
+      box-shadow: none;
+      /* Efecto neón en el texto para que resalte sin recuadros */
+      text-shadow: 
+        0 0 8px rgba(255, 234, 176, 0.9),
+        0 0 18px rgba(255, 190, 40, 0.8),
+        0 0 30px rgba(255, 150, 0, 0.6);
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.85);
+      transition: opacity 1.4s ease, transform 1.4s ease;
+      will-change: transform, opacity;
+      pointer-events: none;
+    }
+    .random-msg.visible {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+   /* Panel de Control UI Superior */
+    #ui-controls {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      z-index: 20;
+      gap: 12px;
+      display: none !important; /* <--- Asegura que se oculte por completo */
+    }
+    .ui-btn {
+      background: rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 234, 176, 0.4);
+      color: var(--txt);
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+      transition: transform 0.2s, background 0.2s;
+    }
+    .ui-btn:hover { transform: scale(1.1); background: rgba(255, 255, 255, 0.25); }
+
+    /* Guía inferior */
+    #hint {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255, 234, 176, 0.7);
+      font-size: 13px;
+      letter-spacing: 0.5px;
+      pointer-events: none;
+      z-index: 15;
+      background: rgba(0,0,0,0.4);
+      padding: 6px 16px;
+      border-radius: 20px;
+      backdrop-filter: blur(4px);
+    }
+
+    @media (max-width: 600px) {
+      .random-msg { font-size: 26px; max-width: 86vw; }
+    }
+  </style>
+</head>
+<body>
+
+  <canvas id="gl"></canvas>
+  <div id="msgs"></div>
+
+  <!-- Botones de Interacción -->
+  <div id="ui-controls">
+    <button class="ui-btn" id="btn-music" title="Reproducir / Pausar Música">🎵</button>
+    <button class="ui-btn" id="btn-pause" title="Pausar / Reanudar Animación">⏸️</button>
+  </div>
+
+  <div id="hint"></div>
+
+  <!-- Audio de Piano Romántico -->
+  <audio id="bg-music" loop crossorigin="anonymous">
+    <source src="https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=romantic-piano-112199.mp3" type="audio/mpeg">
+  </audio>
+
+  <!-- Three.js r128 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+    // ---- LÓGICA DE MENSAJES EN POSICIONES ALEATORIAS ----
+    const MSG = [
+      "No te compré flores reales porque se marchitan, así que te programé un universo de girasoles que duran para siempre 🌻💻",
+      "Llegó septiembre y no podían faltar tus flores amarillas 🌻✨",
+      "Flores amarillas versión 3D porque te mereces un detalle galáctico 🌻",
+      "Un detalle rápido para recordarte que eres una gran persona 💛",
+      "Programé esta animación en un bucle infinito para asegurarme de que nunca te falten flores ni un motivo para sonreír 🌻✨"
+    ];
+
+    const msgsContainer = document.getElementById('msgs');
+    let currentMsgEl = null;
+    let msgIndex = 0;
+
+    function showNextRandomMessage() {
+    // Si ya hay un mensaje en pantalla, lo desvanecemos primero
+      if (currentMsgEl) {
+        const oldMsg = currentMsgEl;
+        oldMsg.classList.remove('visible');
+        setTimeout(() => { oldMsg.remove(); }, 1500); // Se remueve tras terminar el fade out
+      }
+
+      const text = MSG[msgIndex];
+      msgIndex = (msgIndex + 1) % MSG.length;
+
+      const msgEl = document.createElement('div');
+      msgEl.className = 'random-msg';
+      msgEl.textContent = text;
+
+      // Posición aleatoria en pantalla (25% a 75%)
+      const posX = 35 + Math.random() * 30; 
+      const posY = 30 + Math.random() * 40;
+
+      msgEl.style.left = posX + '%';
+      msgEl.style.top = posY + '%';
+
+      msgsContainer.appendChild(msgEl);
+
+      // Forzar reflow para que el navegador aplique la transición de entrada correctamente
+      void msgEl.offsetWidth; 
+      msgEl.classList.add('visible');
+
+      currentMsgEl = msgEl;
+  }
+
+    // Cambiar mensaje cada 6.5 segundos
+    setInterval(showNextRandomMessage, 10000);
+    setTimeout(showNextRandomMessage, 1500);
+
+    // ---- UTILIDADES Y CONFIGURACIÓN ----
+    const TAU = Math.PI * 2, R = Math.random, D2R = Math.PI / 180;
+    const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+    const eOut = x => 1 - Math.pow(1 - x, 3);
+    const eIO = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+    const eBack = x => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+    const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+    const gauss = () => (R() + R() + R() + R() - 2) * 1.73;
+
+    const T_HEART = 1.0, T_FADE0 = 8.4, T_FADE1 = 10.2, T_BOOM2 = 10.4, T_END = 26.6, LOOP = 28;
+    const CY = 2.6, FOV = 50;
+
+    // ---- ESCENA Y RENDERER ----
+    const cv = document.getElementById('gl');
+    const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+    renderer.setClearColor(0x000000, 0);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(FOV, 1, .1, 500);
+
+    let W = window.innerWidth, H = window.innerHeight;
+    const uTime = { value: 0 }, uPx = { value: 1 };
+
+    const shader = (vertexShader, fragmentShader, uniforms) => new THREE.ShaderMaterial({
+      vertexShader: 'uniform float uTime; uniform float uPx;\n' + vertexShader,
+      fragmentShader,
+      uniforms: Object.assign({ uTime, uPx }, uniforms || {}),
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+    });
+
+    const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+
+    // ---- TEXTURAS PROCEDURALES ----
+    function glowTex() {
+      const c = mk(128, 128), g = c.getContext('2d');
+      const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.25, 'rgba(255,225,140,.55)');
+      gr.addColorStop(.6, 'rgba(255,170,40,.15)'); gr.addColorStop(1, 'rgba(255,150,20,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+      return new THREE.CanvasTexture(c);
+    }
+    function ringTex() {
+      const c = mk(256, 256), g = c.getContext('2d');
+      const gr = g.createRadialGradient(128, 128, 96, 128, 128, 126);
+      gr.addColorStop(0, 'rgba(255,200,80,0)'); gr.addColorStop(.55, 'rgba(255,230,150,.95)'); gr.addColorStop(1, 'rgba(255,180,50,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+      return new THREE.CanvasTexture(c);
+    }
+    function nebTex(rgb) {
+      const c = mk(256, 256), g = c.getContext('2d');
+      for (let i = 0; i < 28; i++) {
+        const x = 40 + R() * 176, y = 40 + R() * 176, r = 30 + R() * 70;
+        const gr = g.createRadialGradient(x, y, 0, x, y, r);
+        gr.addColorStop(0, `rgba(${rgb},${.06 + R() * .1})`); gr.addColorStop(1, `rgba(${rgb},0)`);
+        g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+      }
+      g.globalCompositeOperation = 'destination-in';
+      const m = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+      m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(.65, 'rgba(0,0,0,.55)'); m.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = m; g.fillRect(0, 0, 256, 256);
+      return new THREE.CanvasTexture(c);
+    }
+    function petal(g, r0, len, wid) {
+      g.beginPath(); g.moveTo(r0, 0);
+      g.bezierCurveTo(r0 + len * .22, -wid, r0 + len * .68, -wid * .95, r0 + len, 0);
+      g.bezierCurveTo(r0 + len * .68, wid * .95, r0 + len * .22, wid, r0, 0); g.closePath();
+    }
+    function drawHead(g, cx, cy, Rr) {
+      const cr = Rr * .36; g.save(); g.translate(cx, cy);
+      [[22, .5, .82, .16, '#e08a00', '#ffbd14'], [22, 0, 1, .165, '#ffc21a', '#fff06a']].forEach(([n, off, l, w, c0, c1]) => {
+        for (let i = 0; i < n; i++) {
+          g.save(); g.rotate((i + off) / n * TAU);
+          const r0 = cr * .82, len = (Rr - cr * .85) * l, wid = Rr * w;
+          const gr = g.createLinearGradient(r0, 0, r0 + len, 0); gr.addColorStop(0, c0); gr.addColorStop(1, c1);
+          g.fillStyle = gr; petal(g, r0, len, wid); g.fill();
+          g.strokeStyle = 'rgba(190,100,0,.35)'; g.lineWidth = Math.max(1, Rr * .01);
+          g.beginPath(); g.moveTo(r0 + len * .1, 0); g.lineTo(r0 + len * .82, 0); g.stroke();
+          g.restore();
+        }
+      });
+      const cg = g.createRadialGradient(0, 0, 0, 0, 0, cr);
+      cg.addColorStop(0, '#7b4514'); cg.addColorStop(.6, '#4a2508'); cg.addColorStop(1, '#2c1404');
+      g.fillStyle = cg; g.beginPath(); g.arc(0, 0, cr, 0, TAU); g.fill();
+      const M = 220, ga = 2.39996323;
+      for (let i = 1; i < M; i++) {
+        const rr = Math.sqrt(i / M) * cr * .94, a = i * ga;
+        g.fillStyle = i % 3 ? '#20100a' : '#b87428';
+        g.beginPath(); g.arc(Math.cos(a) * rr, Math.sin(a) * rr, cr * (.012 + .03 * (i / M)), 0, TAU); g.fill();
+      }
+      g.strokeStyle = 'rgba(210,140,40,.65)'; g.lineWidth = Math.max(1.5, Rr * .02);
+      g.beginPath(); g.arc(0, 0, cr, 0, TAU); g.stroke(); g.restore();
+    }
+    function leaf(g, x, y, len, ang) {
+      g.save(); g.translate(x, y); g.rotate(ang); g.fillStyle = '#3f8a2c';
+      g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(len * .5, -len * .28, len, 0); g.quadraticCurveTo(len * .5, len * .22, 0, 0); g.fill();
+      g.strokeStyle = 'rgba(20,70,20,.6)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(0, 0); g.lineTo(len * .9, 0); g.stroke(); g.restore();
+    }
+
+    const headTex = (() => { const c = mk(512, 512); drawHead(c.getContext('2d'), 256, 256, 244); return new THREE.CanvasTexture(c); })();
+    const stemTex = (() => {
+      const c = mk(256, 384), g = c.getContext('2d');
+      g.strokeStyle = '#3b7d2a'; g.lineWidth = 9; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(128, 190); g.quadraticCurveTo(120, 290, 128, 372); g.stroke();
+      leaf(g, 124, 300, 70, -.5); leaf(g, 124, 332, 64, Math.PI + .5);
+      drawHead(g, 128, 110, 98);
+      return new THREE.CanvasTexture(c);
+    })();
+    const bouquetTex = (() => {
+      const c = mk(384, 384), g = c.getContext('2d');
+      g.strokeStyle = '#3b7d2a'; g.lineWidth = 8; g.lineCap = 'round';
+      [[110, 120], [192, 86], [276, 124], [150, 170], [236, 168]].forEach(([x, y]) => {
+        g.beginPath(); g.moveTo(192, 372); g.quadraticCurveTo((192 + x) / 2, (372 + y) / 2 + 30, x, y); g.stroke();
+      });
+      leaf(g, 175, 290, 70, Math.PI + .6); leaf(g, 210, 296, 70, -.6);
+      g.fillStyle = 'rgba(130,78,34,.95)'; g.beginPath(); g.moveTo(158, 300); g.lineTo(226, 300); g.lineTo(212, 382); g.lineTo(172, 382); g.closePath(); g.fill();
+      drawHead(g, 150, 170, 52); drawHead(g, 236, 168, 52); drawHead(g, 110, 120, 64); drawHead(g, 276, 124, 64); drawHead(g, 192, 86, 72);
+      return new THREE.CanvasTexture(c);
+    })();
+    const glow = glowTex(), ringT = ringTex();
+    const glowSprite = (col, order) => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: col, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+      s.renderOrder = order; s.visible = false; scene.add(s); return s;
+    };
+
+    // ---- COMPONENTES DE LA ESCENA ----
+    const nebs = [
+      { p: [-32, 16, -62], s: 90, c: '140,80,220', o: .9, w: .012 },
+      { p: [36, -2, -74], s: 100, c: '50,110,215', o: .8, w: -.009 },
+      { p: [12, 28, -84], s: 80, c: '225,80,165', o: .6, w: .008 },
+      { p: [-22, -10, -58], s: 66, c: '255,160,60', o: .45, w: -.011 }
+    ].map(n => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: nebTex(n.c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: n.o }));
+      s.position.set(...n.p); s.scale.set(n.s, n.s, 1); s.renderOrder = -2; scene.add(s); n.sp = s; return n;
+    });
+
+    const stars = (() => {
+      const N = 3200, pos = new Float32Array(N * 3), seed = new Float32Array(N), size = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const v = new THREE.Vector3(gauss(), gauss(), gauss()).normalize().multiplyScalar(70 + R() * 70);
+        pos.set([v.x, v.y, v.z], i * 3); seed[i] = R(); size[i] = R() < .08 ? 4 + R() * 3 : 1.2 + R() * 2;
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+      g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+      const m = shader(`
+        attribute float aSeed; attribute float aSize; varying float vA; varying float vS;
+        void main(){
+          vec4 mv = modelViewMatrix * vec4(position,1.);
+          gl_Position = projectionMatrix * mv;
+          float tw = .5 + .5*sin(uTime*(.6+aSeed*2.2) + aSeed*40.);
+          gl_PointSize = aSize * uPx * (.6 + .8*tw);
+          vA = .2 + .8*tw; vS = aSeed;
+        }`, `
+        varying float vA; varying float vS;
+        void main(){
+          float d = length(gl_PointCoord - .5);
+          float a = smoothstep(.5, .0, d);
+          vec3 col = mix(vec3(1.,.8,.35), vec3(1.,.96,.8), vS);
+          gl_FragColor = vec4(col, a*vA);
+        }`);
+      const p = new THREE.Points(g, m); p.renderOrder = -1; p.frustumCulled = false; scene.add(p); return p;
+    })();
+
+    const galU = { uGal: { value: .3 } };
+    const galaxy = (() => {
+      const N = 110000, NR = 9000, T = N + NR;
+      const pos = new Float32Array(T * 3), size = new Float32Array(T), seed = new Float32Array(T), rad = new Float32Array(T);
+      for (let i = 0; i < N; i++) {
+        let r, ang;
+        if (R() < .15) { r = Math.sqrt(R()) * 12.5 + .9; ang = R() * TAU; }
+        else { r = Math.pow(R(), .55) * 12 + .9; ang = r * .85 + ((R() * 2) | 0) * Math.PI + gauss() * (.1 + r * .035); }
+        pos.set([Math.cos(ang) * r, gauss() * .1 * (1 - r / 15), Math.sin(ang) * r], i * 3);
+        size[i] = 1.3 + R() * R() * 4.2; seed[i] = R(); rad[i] = r;
+      }
+      for (let i = N; i < T; i++) {
+        const r = 1.0 + R() * .7, ang = R() * TAU;
+        pos.set([Math.cos(ang) * r, gauss() * .02, Math.sin(ang) * r], i * 3);
+        size[i] = 2.5 + R() * 2; seed[i] = R(); rad[i] = r;
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+      g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+      g.setAttribute('aR', new THREE.BufferAttribute(rad, 1));
+      const m = shader(`
+        attribute float aSize; attribute float aSeed; attribute float aR; uniform float uGal; varying float vA; varying vec3 vC;
+        void main(){
+          float ang = uTime * (.55 / (1. + aR*.35));
+          float c = cos(ang), s = sin(ang);
+          vec3 p = vec3(position.x*c - position.z*s, position.y, position.x*s + position.z*c);
+          vec4 mv = modelViewMatrix * vec4(p,1.);
+          gl_Position = projectionMatrix * mv;
+          gl_PointSize = aSize * uPx * (15. / (-mv.z));
+          float tw = .7 + .3*sin(uTime*(1.+aSeed*3.) + aSeed*30.);
+          float boost = 1. + 2.5 * (1. - smoothstep(0., 3.5, aR));
+          vA = uGal * tw * boost * (1. - smoothstep(9., 13., aR)*.6);
+          vC = mix(vec3(1.,.98,.9), vec3(1.,.74,.2), smoothstep(0., 7., aR));
+        }`, `
+        varying float vA; varying vec3 vC;
+        void main(){
+          float d = length(gl_PointCoord - .5);
+          float a = smoothstep(.5, .0, d);
+          gl_FragColor = vec4(vC, a*vA*1.0);
+        }`, galU);
+      const p = new THREE.Points(g, m); p.frustumCulled = false; p.renderOrder = 0; scene.add(p); return p;
+    })();
+    const core = glowSprite(0xffd27a, 1); core.position.set(0, .15, 0); core.visible = true;
+
+    const heartU = { uU: { value: 0 }, uFade: { value: 0 }, uAngle: { value: 0 }, uForm: { value: 0 } };
+    const heart = (() => {
+      const N = 9000, k = .17;
+      const tgt = new Float32Array(N * 3), sc = new Float32Array(N * 3), del = new Float32Array(N), size = new Float32Array(N), seed = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const a = R() * TAU, edge = R() < .42, r = edge ? .96 + R() * .06 : Math.pow(R(), .45);
+        const hx = 16 * Math.pow(Math.sin(a), 3);
+        const hy = 13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a);
+        tgt.set([hx * r * k, (hy - 2) * r * k, (R() - .5) * 1.6 * (1 - r * .4)], i * 3);
+        const d = new THREE.Vector3(gauss(), gauss(), gauss()).normalize().multiplyScalar((.4 + R() * .8) * 8);
+        sc.set([d.x, d.y, d.z], i * 3); del[i] = R() * .45; size[i] = 1.8 + R() * 3.4; seed[i] = R();
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(tgt, 3));
+      g.setAttribute('aScatter', new THREE.BufferAttribute(sc, 3));
+      g.setAttribute('aDelay', new THREE.BufferAttribute(del, 1));
+      g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+      g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+      const m = shader(`
+        attribute vec3 aScatter; attribute float aDelay; attribute float aSize; attribute float aSeed;
+        uniform float uU; uniform float uFade; uniform float uAngle; uniform float uForm;
+        varying float vA; varying float vS;
+        float eOut(float x){ float y = 1.-x; return 1.-y*y*y; }
+        float eIO(float x){ return x < .5 ? 4.*x*x*x : 1. - pow(-2.*x+2., 3.)/2.; }
+        void main(){
+          float ex = eOut(clamp(uU/.85, 0., 1.));
+          vec3 b = aScatter * ex;
+          float c = eIO(clamp((uU - 1. - aDelay)/1.45, 0., 1.));
+          float ca = cos(uAngle), sa = sin(uAngle);
+          vec3 t = position * (1. + .025*sin(uTime*4.2)*uForm);
+          t = vec3(t.x*ca + t.z*sa, t.y, -t.x*sa + t.z*ca);
+          vec3 p = mix(b, t, c);
+          p += (1.-c) * .3 * vec3(sin(uTime*1.3 + aSeed*6.28), cos(uTime*1.1 + aSeed*9.), sin(uTime + aSeed*4.));
+          p *= 1. + uFade*.22;
+          vec4 mv = modelViewMatrix * vec4(p,1.);
+          gl_Position = projectionMatrix * mv;
+          gl_PointSize = aSize * uPx * (15. / (-mv.z)) * (1. + uFade*.4);
+          vA = clamp(uU/.25, 0., 1.) * (1. - uFade) * (.55 + .45*sin(uTime*5. + aSeed*6.283));
+          vS = aSeed;
+        }`, `
+        varying float vA; varying float vS;
+        void main(){
+          float d = length(gl_PointCoord - .5);
+          float a = smoothstep(.5, .0, d);
+          vec3 col = mix(vec3(1.,.72,.2), vec3(1.,.95,.72), vS);
+          gl_FragColor = vec4(col, a*a*vA*1.3);
+        }`, heartU);
+      const p = new THREE.Points(g, m); p.position.y = CY; p.frustumCulled = false; p.renderOrder = 4; p.visible = false; scene.add(p); return p;
+    })();
+    const heartGlow = glowSprite(0xffc850, 1); heartGlow.position.set(0, CY, 0);
+
+    const burstU = { uV: { value: 0 } };
+    const burst = (() => {
+      const N = 3000, pos = new Float32Array(N * 3), dir = new Float32Array(N * 3), sp = new Float32Array(N), life = new Float32Array(N), size = new Float32Array(N), seed = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const d = new THREE.Vector3(gauss(), gauss(), gauss()).normalize();
+        dir.set([d.x, d.y, d.z], i * 3); sp[i] = 3 + R() * 13; life[i] = 1.3 + R() * 1.4; size[i] = 1.6 + R() * 3.2; seed[i] = R();
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('aDir', new THREE.BufferAttribute(dir, 3));
+      g.setAttribute('aSpeed', new THREE.BufferAttribute(sp, 1));
+      g.setAttribute('aLife', new THREE.BufferAttribute(life, 1));
+      g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+      g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+      const m = shader(`
+        attribute vec3 aDir; attribute float aSpeed; attribute float aLife; attribute float aSize; attribute float aSeed;
+        uniform float uV; varying float vA; varying float vS;
+        void main(){
+          float d = aSpeed * (1. - exp(-2.2*uV)) / 2.2;
+          vec3 p = aDir * d; p.y -= uV*uV*.5;
+          vec4 mv = modelViewMatrix * vec4(p,1.);
+          gl_Position = projectionMatrix * mv;
+          gl_PointSize = aSize * uPx * (15. / (-mv.z));
+          vA = pow(clamp(1. - uV/aLife, 0., 1.), 1.5);
+          vS = aSeed;
+        }`, `
+        varying float vA; varying float vS;
+        void main(){
+          float d = length(gl_PointCoord - .5);
+          float a = smoothstep(.5, .0, d);
+          vec3 col = mix(vec3(1.,.72,.2), vec3(1.,.96,.75), vS);
+          gl_FragColor = vec4(col, a*a*vA*1.4);
+        }`, burstU);
+      const p = new THREE.Points(g, m); p.position.y = CY; p.frustumCulled = false; p.renderOrder = 4; p.visible = false; scene.add(p); return p;
+    })();
+    const flash = glowSprite(0xfff1c4, 5); flash.position.set(0, CY, 0);
+    const ringS = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+    ringS.position.set(0, CY, 0); ringS.renderOrder = 5; ringS.visible = false; scene.add(ringS);
+
+    const shock = () => {
+      const m = new THREE.Mesh(new THREE.RingGeometry(.92, 1, 128), new THREE.MeshBasicMaterial({ color: 0xffd060, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+      m.rotation.x = -Math.PI / 2; m.position.y = .03; m.visible = false; m.renderOrder = 1; scene.add(m); return m;
+    };
+    const shock1 = shock(), shock2 = shock();
+
+    const mainGlow = glowSprite(0xffc23a, 1); mainGlow.position.set(0, CY, 0);
+    const mainFlower = new THREE.Sprite(new THREE.SpriteMaterial({ map: headTex, transparent: true, depthWrite: false, opacity: 0 }));
+    mainFlower.position.set(0, CY, 0); mainFlower.renderOrder = 3; mainFlower.visible = false; scene.add(mainFlower);
+
+    const flowers = [];
+    for (let i = 0; i < 18; i++) {
+      const kind = i < 9 ? 0 : i < 14 ? 1 : 2;
+      const tex = [headTex, stemTex, bouquetTex][kind];
+      const size = kind === 0 ? .9 + R() * .7 : kind === 1 ? 1.7 + R() * .6 : 2.3 + R() * .6;
+      const sx = kind === 0 ? size : kind === 1 ? size * .667 : size;
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0 }));
+      s.renderOrder = 3; s.visible = false; scene.add(s);
+      const g = glowSprite(0xffc850, 2);
+      const r = 3.4 + R() * 7.2;
+      const y = kind === 0 ? 1.2 + R() * 5.2 : size * .5 + .2 + R() * .2;
+      flowers.push({ s, g, sx, sy: size, glow: size * 1.9, r, a: R() * TAU, w: (R() < .5 ? -1 : 1) * (.05 + R() * .09), y, bs: .8 + R() * 1.2, ph: R() * TAU, delay: R() * 4.5 });
+    }
+
+    // ---- INTERACCIÓN Y CÁMARA ORBITAL ----
+    let isPaused = false;
+    let camDistance = 15;
+    let targetDistance = 15;
+    let rotX = 0.2, rotY = 0;
+    let targetRotX = 0.2, targetRotY = 0;
+
+    let isDragging = false;
+    let previousMousePosition = { x: 0, y: 0 };
+    let initialPinchDistance = null;
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = window.innerWidth; H = window.innerHeight;
+      renderer.setPixelRatio(dpr); renderer.setSize(W, H, false); uPx.value = dpr;
+      camera.aspect = W / H; camera.updateProjectionMatrix();
+      camDistance = W / H >= 1 ? 15 : 15 + (1 - W / H) * 11;
+      targetDistance = camDistance;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Eventos Mouse y Touch para rotación 360°
+    cv.addEventListener('pointerdown', e => {
+      isDragging = true;
+      previousMousePosition = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('pointermove', e => {
+      if (!isDragging) return;
+      const deltaX = e.clientX - previousMousePosition.x;
+      const deltaY = e.clientY - previousMousePosition.y;
+
+      targetRotY -= deltaX * 0.006;
+      targetRotX += deltaY * 0.006;
+      targetRotX = Math.max(-1.2, Math.min(1.2, targetRotX));
+
+      previousMousePosition = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('pointerup', () => { isDragging = false; });
+
+    // Zoom con Rueda del Mouse
+    window.addEventListener('wheel', e => {
+      targetDistance += e.deltaY * 0.015;
+      targetDistance = Math.max(6, Math.min(35, targetDistance));
+    }, { passive: true });
+
+    // Zoom con Pellizco en Pantallas Táctiles
+    window.addEventListener('touchmove', e => {
+      if (e.touches.length === 2) {
+        const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
+        if (initialPinchDistance === null) initialPinchDistance = dist;
+        else {
+          const delta = initialPinchDistance - dist;
+          targetDistance += delta * 0.03;
+          targetDistance = Math.max(6, Math.min(35, targetDistance));
+          initialPinchDistance = dist;
+        }
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchend', () => { initialPinchDistance = null; });
+
+    // ---- REPRODUCTOR MÚSICA & PAUSA ----
+    const audio = document.getElementById('bg-music');
+    const btnMusic = document.getElementById('btn-music');
+    const btnPause = document.getElementById('btn-pause');
+
+    function toggleMusic() {
+      if (audio.paused) {
+        audio.play().then(() => { btnMusic.textContent = "🔊"; }).catch(() => {});
+      } else {
+        audio.pause();
+        btnMusic.textContent = "🎵";
+      }
+    }
+
+    btnMusic.addEventListener('click', (e) => { e.stopPropagation(); toggleMusic(); });
+
+    btnPause.addEventListener('click', (e) => {
+      e.stopPropagation();
+      isPaused = !isPaused;
+      btnPause.textContent = isPaused ? "▶️" : "⏸️";
+    });
+
+    // Reproducir música en la primera interacción
+    const startAudioOnFirstTouch = () => {
+      if (audio.paused) {
+        audio.play().then(() => { btnMusic.textContent = "🔊"; }).catch(() => {});
+      }
+      window.removeEventListener('click', startAudioOnFirstTouch);
+      window.removeEventListener('touchstart', startAudioOnFirstTouch);
+    };
+    window.addEventListener('click', startAudioOnFirstTouch);
+    window.addEventListener('touchstart', startAudioOnFirstTouch);
+
+    // ---- BUCLE DE ANIMACIÓN ----
+    let clockTime = 0;
+    let lastTime = performance.now();
+
+    function frame(now) {
+      const delta = (now - lastTime) / 1000;
+      lastTime = now;
+
+      if (!isPaused) clockTime += delta;
+
+      const t = clockTime % LOOP;
+      uTime.value = clockTime;
+
+      // Suavizado de Rotación y Zoom de Cámara
+      rotX += (targetRotX - rotX) * 0.08;
+      rotY += (targetRotY - rotY) * 0.08;
+      camDistance += (targetDistance - camDistance) * 0.08;
+
+      const cy = Math.sin(t * 0.12) * 1.2 + Math.sin(rotX) * camDistance;
+      const cx = Math.sin(rotY) * Math.cos(rotX) * camDistance;
+      const cz = Math.cos(rotY) * Math.cos(rotX) * camDistance;
+
+      camera.position.set(cx, cy, cz);
+      camera.lookAt(0, 1.9, 0);
+      camera.updateMatrixWorld(true);
+
+      const endFade = 1 - eIO(clamp((t - (T_END - 1.4)) / 1.4));
+      stars.rotation.y = t * .004;
+
+      nebs.forEach((n, i) => { n.sp.material.rotation = t * n.w; n.sp.position.x += Math.sin(t * .05 + i) * .002; });
+
+      // Corazón
+      const u1 = t - T_HEART, fade = eIO(clamp((t - T_FADE0) / (T_FADE1 - T_FADE0)));
+      heart.visible = t >= T_HEART && t <= T_FADE1 + .2;
+      heartU.uU.value = u1; heartU.uFade.value = fade; heartU.uAngle.value = Math.max(0, t - 2.4) * .62;
+      heartU.uForm.value = eIO(clamp((u1 - 1.4) / 1.6));
+      const hg = heart.visible ? (.16 * heartU.uForm.value + .35 * Math.sin(Math.PI * fade)) * (1 - Math.max(0, fade - .9) * 10) : 0;
+      heartGlow.visible = hg > .005; heartGlow.material.opacity = Math.max(0, hg); heartGlow.scale.set(9, 9, 1);
+
+      // Explosiones
+      const v2t = t - T_BOOM2;
+      let fo = 0, fsz = 1;
+      if (u1 >= 0 && u1 < .9) { fo = .9 * (1 - u1 / .9); fsz = 4 + 16 * eOut(u1 / .9); }
+      if (v2t >= 0 && v2t < 1.3) { fo = .95 * (1 - v2t / 1.3); fsz = 6 + 30 * eOut(v2t / 1.3); }
+      flash.visible = fo > 0; flash.material.opacity = fo; flash.scale.set(fsz, fsz, 1);
+      ringS.visible = v2t >= 0 && v2t < 1.5;
+      if (ringS.visible) { const s = 3 + 26 * eOut(v2t / 1.5); ringS.scale.set(s, s, 1); ringS.material.opacity = .7 * (1 - v2t / 1.5); }
+      shock1.visible = u1 >= 0 && u1 < 1.6;
+      if (shock1.visible) { const s = 1 + 9 * eOut(u1 / 1.6); shock1.scale.set(s, s, 1); shock1.material.opacity = .5 * (1 - u1 / 1.6); }
+      shock2.visible = v2t >= 0 && v2t < 2;
+      if (shock2.visible) { const s = 1 + 15 * eOut(v2t / 2); shock2.scale.set(s, s, 1); shock2.material.opacity = .7 * (1 - v2t / 2); }
+      burst.visible = v2t >= 0 && v2t < 3; burstU.uV.value = Math.max(0, v2t);
+
+      // Girasol principal
+      const sv = t - T_BOOM2 - .25;
+      mainFlower.visible = sv > 0;
+      if (mainFlower.visible) {
+        const g = eBack(clamp(sv / 1.8)), bl = eOut(clamp(sv / 2.2)), sz = 5.6 * g;
+        mainFlower.scale.set(sz, sz, 1); mainFlower.material.rotation = (t - T_BOOM2) * .07;
+        mainFlower.material.opacity = endFade * clamp(sv / .4);
+        mainGlow.visible = true; mainGlow.scale.set(13 * bl, 13 * bl, 1); mainGlow.material.opacity = .5 * bl * endFade;
+      } else mainGlow.visible = false;
+
+      // Flores flotantes
+      for (const f of flowers) {
+        const ap = eBack(clamp((t - T_BOOM2 - 1.2 - f.delay) / 1.3));
+        const on = ap > .001;
+        f.s.visible = f.g.visible = on;
+        if (!on) continue;
+        const ang = f.a + (t - T_BOOM2) * f.w;
+        const x = Math.cos(ang) * f.r, z = Math.sin(ang) * f.r, y = f.y + Math.sin(t * f.bs + f.ph) * .16;
+        f.s.position.set(x, y, z); f.s.scale.set(f.sx * ap, f.sy * ap, 1);
+        f.s.material.opacity = endFade * clamp(ap * 2); f.s.material.rotation = Math.sin(t * .6 + f.ph) * .1;
+        f.g.position.set(x, y, z); f.g.scale.set(f.glow * ap, f.glow * ap, 1); f.g.material.opacity = .32 * endFade;
+      }
+
+      // Galaxia
+      const gl = .5 + .7 * eIO(clamp((t - (T_BOOM2 - .5)) / 3)) * endFade + .12 * Math.sin(Math.PI * clamp((t - T_HEART) / 2));
+      galU.uGal.value = gl; core.material.opacity = .5 * gl; core.scale.set(5, 5, 1);
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+
+    requestAnimationFrame(now => { lastTime = now; frame(now); });
+  </script>
+</body>
+</html>
